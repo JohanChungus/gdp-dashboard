@@ -1,2 +1,7 @@
 streamlit
 pandas
+flask
+ansi2html
+requests
+gradio_client
+speedtest-cli
